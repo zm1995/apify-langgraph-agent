@@ -31,6 +31,27 @@ class InstagramPost(BaseModel):
     alt: str | None = None
 
 
+class YouTubeVideo(BaseModel):
+    """YouTube Video Pydantic model.
+
+    Returned as a structured output by the `tool_scrape_youtube_videos` tool.
+
+    title: The title of the video.
+    url: The URL of the video.
+    views: The number of views on the video (optional).
+    duration: The duration of the video (optional).
+    channel: The channel name (optional).
+    published_at: The publication date (optional).
+    """
+
+    title: str
+    url: str
+    views: int | None = None
+    duration: str | None = None
+    channel: str | None = None
+    published_at: str | None = None
+
+
 class AgentStructuredOutput(BaseModel):
     """Structured output for the ReAct agent.
 
