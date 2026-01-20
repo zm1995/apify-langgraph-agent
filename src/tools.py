@@ -12,9 +12,7 @@ from __future__ import annotations
 from apify import Actor
 from langchain_core.tools import tool
 
-import asyncio
-from crawlee.crawlers import BeautifulSoupCrawler, BeautifulSoupCrawlingContext
-from models import YouTubeVideo
+from src.models import YouTubeVideo
 
 # @tool
 # def tool_calculator_sum(numbers: list[int]) -> int:
@@ -84,31 +82,66 @@ from models import YouTubeVideo
 
 
 @tool
-async def tool_scrape_youtube_30_posts(handle: str, max_videos: int = 30) -> list[YouTubeVideo]:
-    """Tool to scrape YouTube channel videos.
+async def tool_scrape_youtube_30_posts(url: str = 'https://www.youtube.com/', max_videos: int = 30) -> list[YouTubeVideo]:
+    """Tool to scrape YouTube videos from a given URL.
 
     Args:
-        handle (str): YouTube channel handle to scrape (without the '@' symbol).
+        url (str, optional): YouTube URL to scrape. Defaults to 'https://www.youtube.com/'.
         max_videos (int, optional): Maximum number of videos to scrape. Defaults to 30.
 
     Returns:
-        list[YouTubeVideo]: List of YouTube video scraped from the channel.
+        list[YouTubeVideo]: List of YouTube videos scraped from the URL.
+
+    Raises:
+        RuntimeError: If the Actor fails to start.
     """
-    crawler = BeautifulSoupCrawler()
+    run_input = {
+        'startUrls': [{'url': url}],
+        'maxResults': max_videos,
+        'searchKeywords': '',
+        'downloadSubtitles': False,
+        'saveCaptions': False,
+    }
+    
+    # Use Apify's YouTube scraper actor
+    actor_id = 'apify/youtube-scraper'
+    
+    Actor.log.info('Starting YouTube scraper actor: %s', actor_id)
+    if not (run := await Actor.apify_client.actor(actor_id).call(run_input=run_input)):
+        msg = f'Failed to start the Actor {actor_id}'
+        Actor.log.error(msg)
+        raise RuntimeError(msg)
 
-    @crawler.router.default_handler
-    async def handle_listing(context: BeautifulSoupCrawlingContext):
-        context.log.info("Looking for video detail pages")
-        await context.enqueue_links(selector="ytd-rich-item-renderer a.yt-simple-endpoint.style-scope.yt-formatted-link", label="DETAIL")
+    dataset_id = run['defaultDatasetId']
+    Actor.log.info('YouTube scraper completed, fetching results from dataset: %s', dataset_id)
+    
+    dataset_items: list[dict] = (await Actor.apify_client.dataset(dataset_id).list_items()).items
+    videos: list[YouTubeVideo] = []
+    
+    for item in dataset_items:
+        title: str | None = item.get('title')
+        video_url: str | None = item.get('url') or item.get('videoUrl')
+        views: int | None = item.get('views') or item.get('viewCount')
+        duration: str | None = item.get('duration')
+        channel: str | None = item.get('channelName') or item.get('channel')
+        published_at: str | None = item.get('uploadedAt') or item.get('publishedAt')
 
-    @crawler.router.handler("DETAIL")
-    async def handle_detail(context: BeautifulSoupCrawlingContext):
-        context.log.info(f"Found video: {context.request.url}")
-        await context.push_data(YouTubeVideo(title=context.soup.select_one("ytd-video-title").text.strip(), url=context.request.url, views=context.soup.select_one("span.view-count").text.strip(), duration=context.soup.select_one("span.duration").text.strip(), channel=context.soup.select_one("ytd-channel-name a").text.strip(), published_at=context.soup.select_one("span.published-time").text.strip()))
+        # Only include videos with required fields (title and url)
+        if not title or not video_url:
+            Actor.log.warning('Skipping video with missing required fields: %s', item)
+            continue
 
-    await crawler.run(["https://www.youtube.com/"])
+        videos.append(
+            YouTubeVideo(
+                title=title,
+                url=video_url,
+                views=views,
+                duration=duration,
+                channel=channel,
+                published_at=published_at,
+            )
+        )
 
-    crawler.log.info("Exporting data")
-    videos: list[YouTubeVideo] = await crawler.export_data()
+    Actor.log.info('Successfully scraped %d YouTube videos', len(videos))
     return videos
 
