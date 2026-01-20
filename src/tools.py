@@ -109,6 +109,6 @@ async def tool_scrape_youtube_30_posts(handle: str, max_videos: int = 30) -> lis
     await crawler.run(["https://www.youtube.com/"])
 
     crawler.log.info("Exporting data")
-    await crawler.export_data(path='dataset.json', ensure_ascii=False, indent=2)
-    await crawler.export_data(path='dataset.csv')
+    videos: list[YouTubeVideo] = await crawler.export_data()
+    return videos
 
